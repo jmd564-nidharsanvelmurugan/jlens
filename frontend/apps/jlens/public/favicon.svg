@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- JLens favicon with JL letters -->
+  <rect width="32" height="32" fill="#19105B"/>
+  <text x="8" y="22" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#FF6196">J</text>
+  <text x="18" y="22" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#A16BDB">L</text>
+</svg>

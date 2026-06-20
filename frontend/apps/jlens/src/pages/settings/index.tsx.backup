@@ -1,0 +1,402 @@
+import { Settings, Search, Check, X, Shield, Folder, BarChart3 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Button } from "@ui/components/ui/button";
+import { toast } from "sonner";
+import axios from "axios";
+
+interface UserAccess {
+  email: string;
+  name: string;
+  access: {
+    features: string[];
+    models: string[];
+    workspaces: Array<{id: string; name: string; owner: string}>;
+  };
+}
+
+export default function SettingsPage() {
+  const [users, setUsers] = useState<UserAccess[]>([]);
+  const [selectedUser, setSelectedUser] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [pendingChanges, setPendingChanges] = useState<Record<string, any[]>>({});
+  const [loading, setLoading] = useState(false);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [availableWorkspaces, setAvailableWorkspaces] = useState<Array<{id: string; name: string; owner: string}>>([]);
+  const [workspaceSearch, setWorkspaceSearch] = useState("");
+  const [activeTab, setActiveTab] = useState<"access" | "usage">("access");
+
+  useEffect(() => {
+    fetchAllUsers();
+    fetchModels();
+    fetchWorkspaces();
+  }, []);
+
+  const fetchModels = async () => {
+    try {
+      const token = sessionStorage.getItem('token');
+      const response = await axios.get('http://localhost:8000/api/models/db', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setAvailableModels(response.data.map((m: any) => m.id));
+    } catch (error) {
+      setAvailableModels(["model-router", "gpt-5.1-chat", "gpt-4.1-mini", "DeepSeek-R1", "grok-3-mini", "Llama-3.2-90B-Vision-Instruct", "Llama-3.3-70B-Instruct"]);
+    }
+  };
+
+  const fetchWorkspaces = async () => {
+    try {
+      const token = sessionStorage.getItem('token');
+      const response = await axios.get('http://localhost:8000/api/user-access/available-components', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const workspaces = response.data
+        .filter((c: any) => c.component_type === 'workspace')
+        .map((w: any) => ({id: w.component, name: w.name, owner: w.owner}));
+      setAvailableWorkspaces(workspaces);
+    } catch (error) {
+      setAvailableWorkspaces([]);
+    }
+  };
+
+  const fetchAllUsers = async () => {
+    try {
+      const token = sessionStorage.getItem('token');
+      const response = await axios.get('http://localhost:8000/api/user-access/admin/all-users', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setUsers(response.data);
+      if (response.data.length > 0 && !selectedUser) {
+        setSelectedUser(response.data[0].email);
+      }
+    } catch (error) {
+      toast.error("Failed to load users");
+    }
+  };
+
+  const filteredUsers = users.filter(u => 
+    u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    u.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const selectedUserData = users.find(u => u.email === selectedUser);
+
+  const toggleAccess = (component: string, type: string, enabled: boolean) => {
+    if (!selectedUser) return;
+    setPendingChanges(prev => {
+      const changes = prev[selectedUser] || [];
+      const existing = changes.find(c => c.component === component && c.component_type === type);
+      
+      if (existing) {
+        return { ...prev, [selectedUser]: changes.filter(c => !(c.component === component && c.component_type === type)) };
+      }
+      
+      return { ...prev, [selectedUser]: [...changes, { component, component_type: type, enabled: !enabled }] };
+    });
+  };
+
+  const isEnabled = (component: string, type: string) => {
+    if (!selectedUserData) return false;
+    const pending = pendingChanges[selectedUser]?.find(c => c.component === component && c.component_type === type);
+    if (pending) return pending.enabled;
+    
+    if (type === "feature") return selectedUserData.access.features.includes(component);
+    if (type === "model") return selectedUserData.access.models.includes(component);
+    if (type === "workspace") return selectedUserData.access.workspaces?.some(w => w.id === component) || false;
+    return false;
+  };
+
+  const saveChanges = async () => {
+    if (!selectedUser || !pendingChanges[selectedUser]?.length) return;
+    setLoading(true);
+    try {
+      const token = sessionStorage.getItem('token');
+      const response = await axios.post('http://localhost:8000/api/user-access/admin/update-user-access', {
+        user_email: selectedUser,
+        access_changes: pendingChanges[selectedUser]
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      // Check for errors in response
+      if (response.data.updated) {
+        const errors = response.data.updated.filter((msg: string) => msg.startsWith('Error:'));
+        if (errors.length > 0) {
+          errors.forEach((err: string) => toast.error(err.replace('Error: ', '')));
+        } else {
+          toast.success("Access updated");
+        }
+      }
+      
+      const newChanges = { ...pendingChanges };
+      delete newChanges[selectedUser];
+      setPendingChanges(newChanges);
+      await fetchAllUsers();
+    } catch (error) {
+      toast.error("Failed to update");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const allComponents = {
+    features: ["chat", "ai-proposal", "self-analytics", "mcp-integrations", "settings"],
+    models: availableModels
+  };
+
+  const pendingCount = selectedUser && pendingChanges[selectedUser] ? pendingChanges[selectedUser].length : 0;
+
+  return (
+    <div className="h-screen flex flex-col bg-gray-50">
+      {/* Tabs Header */}
+      <div className="bg-white px-6">
+        <div className="flex gap-6 pt-4">
+          <button
+            onClick={() => setActiveTab("access")}
+            className={`pb-3 px-1 font-medium transition-colors ${
+              activeTab === "access"
+                ? "text-primary border-b-2 border-primary"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            Access
+          </button>
+          <button
+            onClick={() => setActiveTab("usage")}
+            className={`pb-3 px-1 font-medium transition-colors ${
+              activeTab === "usage"
+                ? "text-primary border-b-2 border-primary"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            Usage
+          </button>
+        </div>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === "access" ? (
+    <div className="flex-1 flex overflow-hidden">
+      {/* Sidebar */}
+      <div className="w-72 bg-white flex flex-col">
+        <div className="p-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search users..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 border-0"
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-2">
+          {filteredUsers.map((user) => {
+            const pending = pendingChanges[user.email]?.length || 0;
+            const totalAccess = user.access.features.length + user.access.models.length + (user.access.workspaces?.length || 0);
+            return (
+              <button
+                key={user.email}
+                onClick={() => setSelectedUser(user.email)}
+                className={`w-full p-3 mb-2 rounded-lg text-left transition-all ${
+                  selectedUser === user.email 
+                    ? 'bg-primary text-white shadow-sm' 
+                    : 'hover:bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm font-medium truncate">{user.name}</p>
+                  {pending > 0 && (
+                    <span className={`px-1.5 py-0.5 text-xs rounded ${
+                      selectedUser === user.email ? 'bg-white/20' : 'bg-orange-100 text-orange-700'
+                    }`}>
+                      {pending}
+                    </span>
+                  )}
+                </div>
+                <p className={`text-xs truncate ${selectedUser === user.email ? 'text-white/70' : 'text-gray-500'}`}>
+                  {user.email}
+                </p>
+                <p className={`text-xs mt-1 ${selectedUser === user.email ? 'text-white/60' : 'text-gray-400'}`}>
+                  {totalAccess} permissions
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        {selectedUserData && (
+          <div className="bg-white border-b px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-semibold">{selectedUserData.name}</h2>
+                <p className="text-sm text-gray-500">{selectedUserData.email}</p>
+              </div>
+              {pendingCount > 0 && (
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const newChanges = { ...pendingChanges };
+                      delete newChanges[selectedUser];
+                      setPendingChanges(newChanges);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button size="sm" onClick={saveChanges} disabled={loading}>
+                    {loading ? "Saving..." : `Save ${pendingCount}`}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {selectedUserData ? (
+            <div className="max-w-5xl">
+              {/* Component Access */}
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <Shield className="w-4 h-4 text-primary" />
+                  <h3 className="text-sm font-semibold text-gray-700">
+                    Component Access ({selectedUserData.access.features.length})
+                  </h3>
+                </div>
+                <div className="bg-white rounded-lg p-4">
+                  <div className="grid grid-cols-5 gap-2">
+                    {allComponents.features.map((feature) => {
+                      const enabled = isEnabled(feature, "feature");
+                      return (
+                        <button
+                          key={feature}
+                          onClick={() => toggleAccess(feature, "feature", enabled)}
+                          className={`p-2.5 rounded-md border text-xs font-medium transition-all ${
+                            enabled
+                              ? 'border-primary bg-primary/5 text-primary'
+                              : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="truncate capitalize">{feature.replace('-', ' ')}</span>
+                            {enabled ? <Check className="w-3 h-3 flex-shrink-0" /> : <X className="w-3 h-3 flex-shrink-0 text-gray-300" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* AI Models */}
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <Shield className="w-4 h-4 text-primary" />
+                  <h3 className="text-sm font-semibold text-gray-700">
+                    AI Models ({selectedUserData.access.models.length})
+                  </h3>
+                </div>
+                <div className="bg-white rounded-lg p-4">
+                  <div className="grid grid-cols-6 gap-2">
+                    {allComponents.models.map((model) => {
+                      const enabled = isEnabled(model, "model");
+                      return (
+                        <button
+                          key={model}
+                          onClick={() => toggleAccess(model, "model", enabled)}
+                          className={`p-2 rounded-md border text-xs font-medium transition-all ${
+                            enabled
+                              ? 'border-primary bg-primary/5 text-primary'
+                              : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-center gap-1">
+                            <span className="truncate">{model}</span>
+                            {enabled && <Check className="w-3 h-3 flex-shrink-0" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Workspace Shares */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Folder className="w-4 h-4 text-primary" />
+                    <h3 className="text-sm font-semibold text-gray-700">
+                      Workspace Shares ({selectedUserData.access.workspaces?.length || 0})
+                    </h3>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search workspaces..."
+                    value={workspaceSearch}
+                    onChange={(e) => setWorkspaceSearch(e.target.value)}
+                    className="px-3 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-primary w-48"
+                  />
+                </div>
+                <div className="bg-white rounded-lg p-4">
+                  <div className="grid grid-cols-4 gap-2">
+                    {availableWorkspaces
+                      .filter(w => 
+                        w.name.toLowerCase().includes(workspaceSearch.toLowerCase()) ||
+                        w.owner.toLowerCase().includes(workspaceSearch.toLowerCase())
+                      )
+                      .map((workspace) => {
+                      const enabled = isEnabled(workspace.id, "workspace");
+                      return (
+                        <button
+                          key={workspace.id}
+                          onClick={() => toggleAccess(workspace.id, "workspace", enabled)}
+                          className={`p-2 rounded-md border text-xs transition-all text-left ${
+                            enabled
+                              ? 'border-primary bg-primary/5 text-primary'
+                              : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="truncate font-medium text-xs">{workspace.name}</span>
+                            {enabled ? <Check className="w-3 h-3 flex-shrink-0" /> : <X className="w-3 h-3 flex-shrink-0 text-gray-300" />}
+                          </div>
+                          <div className="text-[10px] text-gray-500 truncate">{workspace.owner}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-full text-gray-400">
+              <div className="text-center">
+                <Settings className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                <p className="text-sm">Select a user to manage access</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <BarChart3 className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+            <h2 className="text-xl font-semibold text-gray-600 mb-2">Usage Analytics</h2>
+            <p className="text-gray-500">Coming soon...</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

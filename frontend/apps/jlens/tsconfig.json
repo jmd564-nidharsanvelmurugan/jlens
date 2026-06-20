@@ -1,0 +1,25 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "module": "ESNext",
+    "jsx": "react-jsx",
+    "moduleResolution": "bundler",
+    "paths": {
+      "@ui/*": ["../../packages/ui/dist/*"],
+      "@actions/*": ["./src/actions/*"],
+      "@auth/*": ["./src/auth/*"],
+      "@lib/*": ["./src/lib/*"],
+      "@pages/*": ["./src/pages/*"],
+      "@components/*": ["./src/components/*"],
+      "@query/*": ["./src/store/*"],
+      "@context/*": ["./src/context/*"],
+    }
+  },
+  "exclude": ["node_modules"]
+}
+ 

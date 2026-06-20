@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Security Headers -->
+    <meta http-equiv="Content-Security-Policy" 
+          content="default-src 'self'; 
+                   script-src 'self' 'unsafe-inline' 'unsafe-eval'; 
+                   style-src 'self' 'unsafe-inline'; 
+                   img-src 'self' data: https: blob:; 
+                   font-src 'self' data:; 
+                   connect-src 'self' 
+                     http://localhost:8000 
+                     http://localhost:8008 
+                     http://127.0.0.1:8008 
+                     http://localhost:5173
+                     http://127.0.0.1:5173
+                     https://jlens4o.jmangroup.tech 
+                     https://marketplace-uat.jmangroup.tech 
+                     https://marketplace.jmangroup.tech 
+                     https://tenaliai-az-dev.jmangroup.tech 
+                     https://tenaliai-az.jmangroup.tech 
+                     https://login.microsoftonline.com 
+                     https://graph.microsoft.com 
+                     wss: ws:; 
+                   worker-src 'self' blob:;
+                   base-uri 'self';">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+    <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=()">
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JLens</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

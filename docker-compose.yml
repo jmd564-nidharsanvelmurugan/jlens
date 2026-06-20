@@ -1,0 +1,14 @@
+services:
+  frontend:
+    image: crjlensdevuksouth01.azurecr.io/jlens4o-frontend:latest
+    env_file:
+      - /home/adminuser/secrets/frontend.env
+    ports:
+      - "3000:80"
+    networks:
+      - appnet
+ 
+networks:
+  appnet:
+    driver: bridge
+ 
