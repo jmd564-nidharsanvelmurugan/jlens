@@ -869,13 +869,6 @@ const AiProposal = () => {
                 </div>
               </div>
 
-              <input
-                type="text"
-                value={user_prompt}
-                onChange={(e) => set_user_prompt(e.target.value)}
-                placeholder="Enter your prompt..."
-                className="border border-gray-300 rounded-md py-2 px-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
 
               {convId && <SalesCallQAs isUploaded={isSalesQAs} convId={convId} onUpload={() => {
                 setIsSalesQAs(true);
@@ -1027,6 +1020,8 @@ const AiProposal = () => {
                             Your Answer
                           </div>
                           {answerInput()}
+
+                          
                           <div
                             className={`mt-2 flex ${convId ? "justify-between" : "justify-end"}`}
                           >
@@ -1047,12 +1042,30 @@ const AiProposal = () => {
                                 </label>
                               </div>
                             )}
+
+                                    {currentQuestionIndex === questions.length - 1 ? (
+  <input
+    type="text"
+    value={user_prompt}
+    onChange={(e) => set_user_prompt(e.target.value)}
+    placeholder="Enter your prompt..."
+    className="border border-gray-300 rounded-md py-2 px-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+  />
+) : null}
+
+
+
                             <button
                               onClick={handleNext}
                               disabled={!isAnswerValid() || !storedQA}
                               className="px-2 py-1 bg-[#19105B] text-white text-xs rounded hover:bg-[#19105B]/90 flex items-center gap-1 disabled:opacity-50"
                               style={{ height: "30px" }} // reduced height
                             >
+                              
+                              
+
+              
+
                               <span>
                                 {currentQuestionIndex === questions.length - 1
                                   ? "Generate"
