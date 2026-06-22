@@ -53,7 +53,6 @@ type Workspace = {
   is_private?: boolean;
   [key: string]: any;
 };
-// const Accordion = AccordionPrimitive.Root;
 
 const AccordionItem = React.forwardRef<
   React.ElementRef<typeof AccordionPrimitive.Item>,
@@ -123,6 +122,7 @@ const AiProposal = () => {
   const [currentAnswer, setCurrentAnswer] = useState<string | string[]>("");
   const [storedQA, setStoredQA] = useState(true);
   const [isQAcomplete, setIsQAcomplete] = useState(false);
+  const [docxUserPrompt, setDocxUserPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [answers, setAnswers] = useState<any[]>([]);
   const { data: proposalQuestions, isLoading: proposalQuestionsLoading } =
@@ -156,11 +156,15 @@ const AiProposal = () => {
   const [isConversationPanelOpen, setIsConversationPanelOpen] = useState(true);
   const { isSidebarCollapsed, setIsSidebarCollapsed } = useSidebarContext();
 
+  // ── user_prompt is now only shown after QA completes ──────────────────────
+  const [user_prompt, set_user_prompt] = useState<string>("");
+
   useEffect(() =>{
     if (!isEditorPanelOpen){
       setIsConversationPanelOpen(true);
     }
   }, [isEditorPanelOpen])
+
   let aiProposalWorkspace = useMemo(() => {
     return workspaces?.find(
       (ws) => ws.name === "AI Proposal"
@@ -178,6 +182,7 @@ const AiProposal = () => {
       setSelectedWorkspace(null)
     }
   }, [])
+
   const handleFollowUpSend = async () => {
     setIsGenerating(true);
     if (!currentUserPrompt) return;
@@ -216,6 +221,41 @@ const AiProposal = () => {
     }
   };
 
+  const handleGenerateWithDocx = async () => {
+    if (!convId) {
+      toast.error("Conversation not found.");
+      return;
+    }
+    setIsQAcomplete(true);
+    setIsGenerating(true);
+    try {
+      const data = await aiProposalApi.generateProposal(convId, docxUserPrompt);
+      const texts = data.proposal.map(
+        (item) => (item.response ?? item.error ?? "") + "\n"
+      );
+      setFollowUpMessages((prev) => [
+        ...prev,
+        {
+          id: data.msg_id,
+          role: "assistant",
+          content: texts.join("\n"),
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: uuidv4(),
+          role: "tool",
+          content: JSON.stringify(data.citations),
+          created_at: new Date().toISOString(),
+        },
+      ]);
+    } catch (err) {
+      toast.error("Failed to generate proposal");
+      setIsQAcomplete(false);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const questions = useMemo(() => {
     if (!proposalQuestions) return [];
     return proposalQuestions.map((q) => ({
@@ -229,23 +269,46 @@ const AiProposal = () => {
   }, [proposalQuestions]);
 
   useEffect(() => { }, [answers]);
-    // useEffect(() => {
-    //   const interval = setInterval(() => {
-    //     if (historyMessages) {
-    //       console.log("historyMessages:-", historyMessages);
-    //       console.log('followUpMessages:-', followUpMessages);
-          
-    //     }
-    //   }, 4000);
-    //   return () => clearInterval(interval);
-    // }, [historyMessages, followUpMessages]);
+
   const convHistoryLoader = async () => {
     const qaPairs = [];
     let questionIdx = 0;
     if (!historyMessages) return;
     if (historyMessages.length < 2) return;
 
-    setIsSalesQAs(localStorage.getItem(`isSalesQas----${convId}`) === "true");
+    const salesQAsFlag = localStorage.getItem(`isSalesQas----${convId}`) === "true";
+    setIsSalesQAs(salesQAsFlag);
+
+    if (salesQAsFlag) {
+      setAnswers([]);
+      setCurrentQuestionIndex(0);
+      setCurrentAnswer("");
+      setIsQAcomplete(false);
+      setFollowUpMessages([]);
+      for (let i = 0; i < historyMessages.length; i++) {
+        const msg = historyMessages[i];
+        if (msg.role === "assistant" || msg.role === "tool" || msg.role === "user") {
+          const isQuestion = questions.some((q) => q.text === msg.content);
+          if (!isQuestion) {
+            setFollowUpMessages((prev) => [
+              ...prev,
+              {
+                id: msg.id,
+                content: msg.content,
+                created_at: msg.created_at,
+                role: msg.role,
+              },
+            ]);
+          }
+        }
+      }
+      const hasAssistantMsg = historyMessages.some(
+        (m) => m.role === "assistant" && !questions.some((q) => q.text === m.content)
+      );
+      if (hasAssistantMsg) setIsQAcomplete(true);
+      return;
+    }
+
     let i = 0;
     for (
       ;
@@ -287,7 +350,6 @@ const AiProposal = () => {
   };
 
   useEffect(() => {
-    // New AI proposal chat clean ups/loads
     if (!convId) {
       setAnswers([]);
       setCurrentQuestionIndex(0);
@@ -307,7 +369,6 @@ const AiProposal = () => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    // Allowed extensions
     const allowedExtensions = [
       ".docx",
       ".pdf",
@@ -321,7 +382,7 @@ const AiProposal = () => {
       return !allowedExtensions.includes(ext);
     });
 
-    const maxFileSize = 64 * 1024 * 1024; // 64 MB in bytes
+    const maxFileSize = 64 * 1024 * 1024;
     const oversizedFiles = Array.from(files).filter((file) => file.size > maxFileSize);
     if (oversizedFiles.length > 0) {
       toast.error("File size must not exceed 64 MB");
@@ -368,23 +429,12 @@ const AiProposal = () => {
   };
 
   const isAnswerValid = () => {
+    if (!currentQuestion) return true;
     if (!currentQuestion.required) return true;
-
-    if (currentQuestion.type === "TEXT") {
-      return (
-        typeof currentAnswer === "string" && currentAnswer.trim().length > 0
-      );
-    }
-
-    if (currentQuestion.type === "RADIO") {
-      return typeof currentAnswer === "string" && currentAnswer.length > 0;
-    }
-
-    if (currentQuestion.type === "DROPDOWN") {
-      return Array.isArray(currentAnswer) && currentAnswer.length > 0;
-    }
-
-    return false;
+    if (currentQuestion.type === "TEXT") return true;
+    if (currentQuestion.type === "RADIO") return true;
+    if (currentQuestion.type === "DROPDOWN") return true;
+    return true;
   };
 
   const handleCreateConversation = async (
@@ -398,7 +448,6 @@ const AiProposal = () => {
       aiProposalWorkspace = await createWorkspace({
         name: "AI Proposal",
         description: "AI Proposal Workspace",
-
         is_private: true,
       });
     }
@@ -443,10 +492,6 @@ const AiProposal = () => {
     return null;
   };
 
-  const [user_prompt, set_user_prompt] = useState<string>("");
-
-  
-
   const storeQA = async (questions: any[], qid: number, answer: string) => {
     setStoredQA(false);
     try{
@@ -476,11 +521,6 @@ const AiProposal = () => {
         output_tokens: 0,
       };
 
-
-
-      
-
-      
       await sendMessage(questionPayload);
       await sendMessage(answerPayload);
     } catch (err) {
@@ -497,56 +537,57 @@ const AiProposal = () => {
   }, [autoSendMessage]);
 
   const handleNext = async () => {
-    if (!isAnswerValid()) return;
     window.scrollTo({
       top: document.body.scrollHeight,
       behavior: "smooth",
     });
 
-    const newAnswer = {
-      questionId: currentQuestion.id,
-      value: currentAnswer,
-      edit: false,
-    };
-    const updatedAnswers = [
-      ...answers.filter((a) => a.questionId !== currentQuestion.id),
-      newAnswer,
-    ];
-    setAnswers(updatedAnswers);
     const storeAnswer = (
       typeof currentAnswer === "string"
         ? currentAnswer.trim()
         : currentAnswer.join(", ")
     ).trim();
 
+    if (storeAnswer) {
+      const newAnswer = {
+        questionId: currentQuestion.id,
+        value: currentAnswer,
+        edit: false,
+      };
+      const updatedAnswers = [
+        ...answers.filter((a) => a.questionId !== currentQuestion.id),
+        newAnswer,
+      ];
+      setAnswers(updatedAnswers);
+    }
+
     if (!convId) {
-      (await handleCreateConversation(storeAnswer)) || "";
+      (await handleCreateConversation(storeAnswer || currentQuestion.text)) || "";
     }
     if (currentQuestionIndex < questions.length - 1) {
-      if (convId) {
+      if (convId && storeAnswer) {
         storeQA(questions, currentQuestionIndex + 1, storeAnswer);
       }
       setCurrentQuestionIndex(currentQuestionIndex + 1);
       setCurrentAnswer("");
     } else {
+      // Last question answered — mark QA complete and show the prompt box
+      // Generation is triggered separately via the "Generate" button
+      if (convId && storeAnswer) {
+        await storeQA(questions, currentQuestionIndex + 1, storeAnswer);
+      }
       setIsQAcomplete(true);
-      setIsGenerating(true);
-      await storeQA(questions, currentQuestionIndex + 1, storeAnswer);
+    }
+  };
 
-
-
-
-
-
-
-
-    console.log("convId:-", convId, "user_prompt:-", user_prompt);
-      const data = await aiProposalApi.generateProposal(convId , user_prompt);
-
+  // Separate handler called by the Generate button after QA is complete
+  const handleGenerate = async () => {
+    setIsGenerating(true);
+    try {
+      const data = await aiProposalApi.generateProposal(convId, user_prompt);
       const texts = data.proposal.map(
         (item) => (item.response ?? item.error ?? "") + "\n"
       );
-
       setFollowUpMessages((prev) => [
         ...prev,
         {
@@ -562,6 +603,9 @@ const AiProposal = () => {
           created_at: new Date().toISOString(),
         },
       ]);
+    } catch (err) {
+      toast.error("Failed to generate proposal");
+    } finally {
       setIsGenerating(false);
     }
   };
@@ -570,7 +614,7 @@ const AiProposal = () => {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [answers.length]);
+  }, [answers.length, isQAcomplete]);
 
   const getAnswerDisplay = (answer: any) => {
     return Array.isArray(answer.value) ? answer.value.join(", ") : answer.value;
@@ -788,12 +832,15 @@ const AiProposal = () => {
     }
   };
 
-  const progressPercentage = Math.min(
-    100,
-    Math.round(
-      ((currentQuestionIndex + (isQAcomplete ? 1 : 0)) / questions.length) * 100
-    )
-  );
+  const progressPercentage = isSalesQAs
+    ? 100
+    : Math.min(
+        100,
+        Math.round(
+          ((currentQuestionIndex + (isQAcomplete ? 1 : 0)) / questions.length) * 100
+        )
+      );
+
   const contextValue = useMemo(
     () => ({
       followUpMessages,
@@ -801,8 +848,9 @@ const AiProposal = () => {
       setIsEditorPanelOpen,
     }),
     [followUpMessages, isGenerating]
-  )
-  return ( // messages={followUpMessages} isLoading={isGenerating} setIsEditorPanelOpen={setIsEditorPanelOpen}
+  );
+
+  return (
     <AiProposalContext.Provider value={contextValue}>
       {proposalQuestionsLoading && <Loading size="full" text="Loading questions..." />}
       {!proposalQuestionsLoading && (
@@ -819,11 +867,11 @@ const AiProposal = () => {
                 if (p){
                   if (!isEditorPanelOpen){
                     setIsEditorPanelOpen(true);
-                  }if (!isSidebarCollapsed){
+                  }
+                  if (!isSidebarCollapsed){
                     setIsSidebarCollapsed(true);
                   }
                 }
-                  
                 return !p;
               })}
               disabled={!(isQAcomplete && followUpMessages.length > 0)}
@@ -869,167 +917,350 @@ const AiProposal = () => {
                 </div>
               </div>
 
+              {convId && (
+                <SalesCallQAs
+                  isUploaded={isSalesQAs}
+                  convId={convId}
+                  onUpload={() => {
+                    setIsSalesQAs(true);
+                    localStorage.setItem(`isSalesQas----${convId}`, "true");
+                    setAnswers([]);
+                    setCurrentQuestionIndex(0);
+                    setCurrentAnswer("");
+                    setIsQAcomplete(false);
+                    setFollowUpMessages([]);
+                  }}
+                />
+              )}
 
-              {convId && <SalesCallQAs isUploaded={isSalesQAs} convId={convId} onUpload={() => {
-                setIsSalesQAs(true);
-                localStorage.setItem(`isSalesQas----${convId}`, "true");
-              }} />}
-              <div className="space-y-6">
+              {/* DOCX UPLOADED PATH */}
+              {isSalesQAs && !isQAcomplete && (
+                <div className="mt-4 space-y-3">
+                  <div className="text-center">
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded text-xs border border-green-200">
+                      <CheckCircle className="w-3 h-3" />
+                      <span>Sales call answers uploaded! Ready to generate.</span>
+                    </div>
+                  </div>
+                  <div className="border border-gray-200 rounded p-3 space-y-2">
+                    <label className="text-xs font-medium text-gray-700">Additional prompt (optional)</label>
+                    <textarea
+                      value={docxUserPrompt}
+                      onChange={(e) => setDocxUserPrompt(e.target.value)}
+                      placeholder="Enter any additional instructions for your proposal..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-[#19105B] resize-none min-h-[80px] text-sm"
+                    />
+                    <div className="flex justify-end">
+                      <button
+                        onClick={handleGenerateWithDocx}
+                        disabled={isGenerating}
+                        className="px-4 py-2 bg-[#19105B] text-white text-xs rounded hover:bg-[#19105B]/90 flex items-center gap-2 disabled:opacity-50"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>Generate Proposal</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-                {/* <div> */}
+              {/* NORMAL QA PATH */}
+              {!isSalesQAs && (
+                <div className="space-y-6">
+                  <div className="space-y-3">
+                    {answers.map((answer: any, index: number) => {
+                      const question = questions.find(
+                        (q) => q.id === answer.questionId
+                      );
 
-                <div className="space-y-3">
-                  {answers.map((answer: any, index: number) => {
-                    const question = questions.find(
-                      (q) => q.id === answer.questionId
-                    );
-                    // const isCompleted = !answer.edit;
+                      return (
+                        <div key={answer.questionId} className="min-w-full">
+                          <div className="mb-2">
+                            <div className="flex items-start gap-2 mb-2">
+                              <div className="w-5 h-5 rounded-full bg-[#19105B] text-white flex items-center justify-center text-xs font-medium flex-shrink-0 mt-0.5">
+                                {index + 1}
+                              </div>
+                              <div className="flex-1">
+                                <p
+                                  className="text-xs leading-relaxed whitespace-pre-wrap font-medium"
+                                  style={{ color: "#19105B" }}
+                                >
+                                  {question?.text}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
 
-                    return (
-                      <div key={answer.questionId} className="min-w-full">
+                          <div className="ml-6">
+                            {!answer.edit ? (
+                              <div className="bg-gray-50 border-l-2 border-[#19105B] p-2 mb-2">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <div className="text-xs text-gray-600 mb-1">
+                                      Answer
+                                    </div>
+                                    <p className="text-xs text-gray-800 leading-relaxed whitespace-pre-wrap">
+                                      {getAnswerDisplay(answer)}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      setAnswers((prev) =>
+                                        prev.map((ans) =>
+                                          ans.questionId === answer.questionId
+                                            ? { ...ans, edit: true }
+                                            : ans
+                                        )
+                                      );
+                                    }}
+                                    className="ml-2 p-1 text-gray-400 hover:text-[#19105B]"
+                                    title="Edit answer"
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="border border-[#19105B] p-2 mb-2">
+                                <div className="text-xs text-[#19105B] mb-2 flex items-center gap-1">
+                                  <Edit3 className="w-3 h-3" />
+                                  Editing
+                                </div>
+                                {editAnswerInput(question)}
+                                <div className="mt-2 flex justify-end gap-2">
+                                  <button
+                                    onClick={() => {
+                                      if (!question) return;
+                                      setAnswers((prev) =>
+                                        prev.map((ans) =>
+                                          ans.questionId === question.id
+                                            ? { ...ans, edit: false }
+                                            : ans
+                                        )
+                                      );
+                                    }}
+                                    className="px-2 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600"
+                                  >
+                                    Cancel
+                                  </button>
+
+                                  <button
+                                    onClick={() => {
+                                      if (!question) return;
+                                      setAnswers((prev) =>
+                                        prev.map((ans) => {
+                                          if (ans.questionId === question.id) {
+                                            const bkendUpdate = Array.isArray(
+                                              ans.value
+                                            )
+                                              ? ans.value.join(", ")
+                                              : ans.value;
+                                            aiProposalApi.editAnswers({
+                                              conversation_id: convId,
+                                              to_edit: [
+                                                {
+                                                  qid: question.id.toString(),
+                                                  content: bkendUpdate,
+                                                },
+                                              ],
+                                            });
+                                            return { ...ans, edit: false };
+                                          }
+                                          return ans;
+                                        })
+                                      );
+                                    }}
+                                    className="px-2 py-1 bg-[#19105B] text-white text-xs rounded hover:bg-[#19105B]/90"
+                                  >
+                                    Save
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Active question input — only while QA is still in progress */}
+                    {!isQAcomplete && !isCreatingConversation && (
+                      <div ref={bottomRef}>
                         <div className="mb-2">
                           <div className="flex items-start gap-2 mb-2">
                             <div className="w-5 h-5 rounded-full bg-[#19105B] text-white flex items-center justify-center text-xs font-medium flex-shrink-0 mt-0.5">
-                              {index + 1}
+                              {currentQuestionIndex + 1}
                             </div>
                             <div className="flex-1">
                               <p
                                 className="text-xs leading-relaxed whitespace-pre-wrap font-medium"
                                 style={{ color: "#19105B" }}
                               >
-                                {question?.text}
+                                {currentQuestion.text}
                               </p>
                             </div>
                           </div>
                         </div>
 
-                        {/* Answer */}
                         <div className="ml-6">
-                          {!answer.edit ? (
-                            <div className="bg-gray-50 border-l-2 border-[#19105B] p-2 mb-2">
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <div className="text-xs text-gray-600 mb-1">
-                                    Answer
-                                  </div>
-                                  <p className="text-xs text-gray-800 leading-relaxed whitespace-pre-wrap">
-                                    {getAnswerDisplay(answer)}
-                                  </p>
-                                </div>
-                                <button
-                                  onClick={() => {
-                                    setAnswers((prev) =>
-                                      prev.map((ans) =>
-                                        ans.questionId === answer.questionId
-                                          ? { ...ans, edit: true }
-                                          : ans
-                                      )
-                                    );
-                                  }}
-                                  className="ml-2 p-1 text-gray-400 hover:text-[#19105B]"
-                                  title="Edit answer"
-                                >
-                                  <Edit3 className="w-3 h-3" />
-                                </button>
-                              </div>
+                          <div className="border border-gray-200 p-2">
+                            <div className="text-xs text-gray-600 mb-2">
+                              Your Answer
                             </div>
-                          ) : (
-                            <div className="border border-[#19105B] p-2 mb-2">
-                              <div className="text-xs text-[#19105B] mb-2 flex items-center gap-1">
-                                <Edit3 className="w-3 h-3" />
-                                Editing
-                              </div>
-                              {editAnswerInput(question)}
-                              <div className="mt-2 flex justify-end gap-2">
-                                <button
-                                  onClick={() => {
-                                    if (!question) return;
-                                    setAnswers((prev) =>
-                                      prev.map((ans) =>
-                                        ans.questionId === question.id
-                                          ? { ...ans, edit: false }
-                                          : ans
-                                      )
-                                    );
-                                  }}
-                                  className="px-2 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600"
-                                >
-                                  Cancel
-                                </button>
+                            {answerInput()}
 
-                                <button
-                                  onClick={() => {
-                                    if (!question) return;
-                                    setAnswers((prev) =>
-                                      prev.map((ans) => {
-                                        if (ans.questionId === question.id) {
-                                          const bkendUpdate = Array.isArray(
-                                            ans.value
-                                          )
-                                            ? ans.value.join(", ")
-                                            : ans.value;
-                                          aiProposalApi.editAnswers({
-                                            conversation_id: convId,
-                                            to_edit: [
-                                              {
-                                                qid: question.id.toString(),
-                                                content: bkendUpdate,
-                                              },
-                                            ],
-                                          });
-                                          return { ...ans, edit: false };
-                                        }
-                                        return ans;
-                                      })
-                                    );
-                                  }}
-                                  className="px-2 py-1 bg-[#19105B] text-white text-xs rounded hover:bg-[#19105B]/90"
-                                >
-                                  Save
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {!isQAcomplete && !isCreatingConversation && (
-                    <div ref={bottomRef}>
-                      <div className="mb-2">
-                        <div className="flex items-start gap-2 mb-2">
-                          <div className="w-5 h-5 rounded-full bg-[#19105B] text-white flex items-center justify-center text-xs font-medium flex-shrink-0 mt-0.5">
-                            {currentQuestionIndex + 1}
-                          </div>
-                          <div className="flex-1">
-                            <p
-                              className="text-xs leading-relaxed whitespace-pre-wrap font-medium"
-                              style={{ color: "#19105B" }}
+                            <div
+                              className={`mt-2 flex ${convId ? "justify-between" : "justify-end"}`}
                             >
-                              {currentQuestion.text}
-                            </p>
+                              {convId && (
+                                <div className="mb-2 flex items-center justify-center">
+                                  <label
+                                    className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-blue-600 cursor-pointer border border-gray-300 rounded hover:border-gray-400 bg-white shadow-sm transition-colors"
+                                    style={{ height: "30px" }}
+                                  >
+                                    <Upload className="w-3 h-3" />
+                                    <span>Upload</span>
+                                    <input
+                                      type="file"
+                                      multiple
+                                      className="hidden"
+                                      onChange={handleFileUpload}
+                                    />
+                                  </label>
+                                </div>
+                              )}
+
+                              <button
+                                onClick={handleNext}
+                                disabled={!storedQA}
+                                className="px-2 py-1 bg-[#19105B] text-white text-xs rounded hover:bg-[#19105B]/90 flex items-center gap-1 disabled:opacity-50"
+                                style={{ height: "30px" }}
+                              >
+                                <span>Continue</span>
+                                <ArrowRight className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
+                    )}
+                  </div>
 
-                      {/* Answer Input */}
-                      <div className="ml-6">
-                        <div className="border border-gray-200 p-2">
-                          <div className="text-xs text-gray-600 mb-2">
-                            Your Answer
+                  {/* ── POST-QA SECTION ─────────────────────────────────────────── */}
+                  {isQAcomplete && (
+                    <div className="mt-6 space-y-3" ref={bottomRef}>
+                      {/* Completion badge */}
+                      <div className="text-center">
+                        <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-[#19105B]/10 text-[#19105B] rounded text-xs">
+                          <CheckCircle className="w-3 h-3" />
+                          <span>All questions completed!</span>
+                        </div>
+                      </div>
+
+                      {/* Optional prompt box — visible before generation starts */}
+                      {!isGenerating && followUpMessages.length === 0 && (
+                        <div className="border border-gray-200 rounded p-3 space-y-2">
+                          <label className="text-xs font-medium text-gray-700">
+                            Additional prompt{" "}
+                            <span className="text-gray-400 font-normal">(optional)</span>
+                          </label>
+                          <textarea
+                            value={user_prompt}
+                            onChange={(e) => set_user_prompt(e.target.value)}
+                            placeholder="Any specific focus or instructions for your proposal..."
+                            className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:border-[#19105B] resize-none min-h-[70px] text-sm"
+                          />
+                          <div className="flex justify-end">
+                            <button
+                              onClick={handleGenerate}
+                              disabled={isGenerating}
+                              className="px-4 py-2 bg-[#19105B] text-white text-xs rounded hover:bg-[#19105B]/90 flex items-center gap-2 disabled:opacity-50"
+                            >
+                              <Sparkles className="w-3 h-3" />
+                              <span>Generate Proposal</span>
+                            </button>
                           </div>
-                          {answerInput()}
+                        </div>
+                      )}
 
-                          
-                          <div
-                            className={`mt-2 flex ${convId ? "justify-between" : "justify-end"}`}
-                          >
+                      {/* Proposal panel */}
+                      <div className="border border-gray-200 rounded">
+                        {isGenerating ? (
+                          <div className="p-3 bg-gray-50 border-l-2 border-[#19105B]">
+                            <Loading size="sm" text="Generating..." />
+                          </div>
+                        ) : followUpMessages.length > 0 ? (
+                          <>
+                            <div className="bg-[#19105B] px-3 py-2">
+                              <h3 className="text-white font-medium text-xs flex items-center gap-2">
+                                <Sparkles className="w-3 h-3" />
+                                Generated Proposal
+                              </h3>
+                            </div>
+                            <div className="p-3">
+                              <div className="mb-3">
+                                <button
+                                  onClick={() =>
+                                    setIsEditorPanelOpen((prev) => {
+                                      if (!prev && !isSidebarCollapsed)
+                                        setIsSidebarCollapsed(true);
+                                      return !prev;
+                                    })
+                                  }
+                                  type="button"
+                                  disabled={isGenerating}
+                                  className="
+                                    flex items-center justify-center w-[70%]
+                                    px-6 py-2 rounded-lg
+                                    transition-colors duration-200 shadow-sm border
+                                    text-xs font-semibold
+                                    bg-[#F3F4F6] text-[#19105B] border-[#F3F4F6]
+                                    hover:bg-[#e5e7eb]
+                                    disabled:opacity-50
+                                    disabled:cursor-not-allowed
+                                    disabled:hover:bg-[#F3F4F6]
+                                  "
+                                >
+                                  <Edit3 className="w-4 h-4 mr-2" />
+                                  View and Edit proposal
+                                  <ChevronRight className="w-4 h-4 ml-2 transition-transform duration-200" />
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Follow-up conversation */}
+                  {followUpMessages[0] && (
+                    <div className="mt-4">
+                      <div className="border border-gray-200 rounded p-3">
+                        <div className="text-xs font-medium text-gray-800 mb-2 flex items-center gap-2">
+                          <MessageSquare className="w-3 h-3 text-[#19105B]" />
+                          Refine Your Proposal
+                        </div>
+                        <div className="relative">
+                          <Textarea
+                            value={currentUserPrompt}
+                            onChange={(e) => setCurrentUserPrompt(e.target.value)}
+                            onKeyPress={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                handleFollowUpSend();
+                              }
+                            }}
+                            placeholder="Ask follow-up questions to refine your proposal..."
+                            className="w-full min-h-[120px] max-h-[120px] resize-none px-2 pt-2 pb-8 border border-gray-300 rounded bg-gray-50 text-xs focus:outline-none focus:border-[#19105B]"
+                            disabled={isGenerating}
+                          />
+
+                          <div className="absolute bottom-1.5 left-2 right-2 flex items-center justify-between">
                             {convId && (
                               <div className="mb-2 flex items-center justify-center">
                                 <label
                                   className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-blue-600 cursor-pointer border border-gray-300 rounded hover:border-gray-400 bg-white shadow-sm transition-colors"
-                                  style={{ height: "30px" }} // reduced height
+                                  style={{ height: "30px" }}
                                 >
                                   <Upload className="w-3 h-3" />
                                   <span>Upload</span>
@@ -1043,35 +1274,14 @@ const AiProposal = () => {
                               </div>
                             )}
 
-                                    {currentQuestionIndex === questions.length - 1 ? (
-  <input
-    type="text"
-    value={user_prompt}
-    onChange={(e) => set_user_prompt(e.target.value)}
-    placeholder="Enter your prompt..."
-    className="border border-gray-300 rounded-md py-2 px-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
-  />
-) : null}
-
-
-
                             <button
-                              onClick={handleNext}
-                              disabled={!isAnswerValid() || !storedQA}
-                              className="px-2 py-1 bg-[#19105B] text-white text-xs rounded hover:bg-[#19105B]/90 flex items-center gap-1 disabled:opacity-50"
-                              style={{ height: "30px" }} // reduced height
+                              type="button"
+                              className="flex items-center gap-1 px-2 py-1 bg-[#19105B] text-white rounded text-xs hover:bg-[#19105B]/90 disabled:opacity-50"
+                              onClick={handleFollowUpSend}
+                              disabled={isGenerating || !currentUserPrompt.trim()}
                             >
-                              
-                              
-
-              
-
-                              <span>
-                                {currentQuestionIndex === questions.length - 1
-                                  ? "Generate"
-                                  : "Continue"}
-                              </span>
-                              <ArrowRight className="w-3 h-3" />
+                              <Send className="w-3 h-3" />
+                              <span>Send</span>
                             </button>
                           </div>
                         </div>
@@ -1079,127 +1289,112 @@ const AiProposal = () => {
                     </div>
                   )}
                 </div>
+              )}
+              {/* end !isSalesQAs */}
 
-                {isQAcomplete && (
-                  <div className="mt-6 space-y-3">
-                    {/* Success message */}
-                    <div className="text-center">
-                      <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-[#19105B]/10 text-[#19105B] rounded text-xs">
-                        <CheckCircle className="w-3 h-3" />
-                        <span>All questions completed!</span>
-                      </div>
+              {/* Follow-up for DOCX path */}
+              {isSalesQAs && isQAcomplete && (
+                <div className="space-y-3 mt-4">
+                  {isGenerating ? (
+                    <div className="p-3 bg-gray-50 border-l-2 border-[#19105B]">
+                      <Loading size="sm" text="Generating..." />
                     </div>
-
-                    {/* Proposal chat */}
-                    <div className="border border-gray-200 rounded">
-                      {isGenerating ?
-                        <div className="p-3 bg-gray-50 border-l-2 border-[#19105B]">
-                          <Loading size="sm" text="Generating..." />
-                        </div> :
+                  ) : (
+                    <>
+                      <div className="border border-gray-200 rounded">
                         <div className="bg-[#19105B] px-3 py-2">
                           <h3 className="text-white font-medium text-xs flex items-center gap-2">
                             <Sparkles className="w-3 h-3" />
                             Generated Proposal
                           </h3>
-                        </div>}
-                      <div className="p-3">
-                        {/* <ProposalChat
-                          messages={followUpMessages}
-                          isLoading={isGenerating}
-                        /> */}
-                        <div className="mb-3">
-                          <button
-                            onClick={() => setIsEditorPanelOpen((prev) => {
-                              if (!prev && !isSidebarCollapsed)
-                                setIsSidebarCollapsed(true);
-                              return !prev
-                            })}
-                            type="button"
-                            disabled={isGenerating}
-                            className="
-                              flex items-center justify-center w-[70%]
-                              px-6 py-2 rounded-lg
-                              transition-colors duration-200 shadow-sm border
-                              text-xs font-semibold
-                              bg-[#F3F4F6] text-[#19105B] border-[#F3F4F6]
-                              hover:bg-[#e5e7eb]
-
-                              disabled:opacity-50
-                              disabled:cursor-not-allowed
-                              disabled:hover:bg-[#F3F4F6]
-                            "
-                          >
-                            <Edit3 className="w-4 h-4 mr-2" />
-                            View and Edit proposal
-                            <ChevronRight className="w-4 h-4 ml-2 transition-transform duration-200" />
-                          </button>
+                        </div>
+                        <div className="p-3">
+                          <div className="mb-3">
+                            <button
+                              onClick={() =>
+                                setIsEditorPanelOpen((prev) => {
+                                  if (!prev && !isSidebarCollapsed)
+                                    setIsSidebarCollapsed(true);
+                                  return !prev;
+                                })
+                              }
+                              type="button"
+                              className="
+                                flex items-center justify-center w-[70%]
+                                px-6 py-2 rounded-lg
+                                transition-colors duration-200 shadow-sm border
+                                text-xs font-semibold
+                                bg-[#F3F4F6] text-[#19105B] border-[#F3F4F6]
+                                hover:bg-[#e5e7eb]
+                              "
+                            >
+                              <Edit3 className="w-4 h-4 mr-2" />
+                              View and Edit proposal
+                              <ChevronRight className="w-4 h-4 ml-2 transition-transform duration-200" />
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                  </div>
-                )}
-
-                {/* Follow up conversation */}
-                {followUpMessages[0] && (
-                  <div className="mt-4">
-                    <div className="border border-gray-200 rounded p-3">
-                      <div className="text-xs font-medium text-gray-800 mb-2 flex items-center gap-2">
-                        <MessageSquare className="w-3 h-3 text-[#19105B]" />
-                        Refine Your Proposal
-                      </div>
-                      <div className="relative">
-                        <Textarea
-                          value={currentUserPrompt}
-                          onChange={(e) => setCurrentUserPrompt(e.target.value)}
-                          onKeyPress={(e) => {
-                            if (e.key === "Enter" && !e.shiftKey) {
-                              e.preventDefault();
-                              handleFollowUpSend();
-                            }
-                          }}
-                          placeholder="Ask follow-up questions to refine your proposal..."
-                          className="w-full min-h-[120px] max-h-[120px] resize-none px-2 pt-2 pb-8 border border-gray-300 rounded bg-gray-50 text-xs focus:outline-none focus:border-[#19105B]"
-                          disabled={isGenerating}
-                        />
-
-                        <div className="absolute bottom-1.5 left-2 right-2 flex items-center justify-between">
-                          {convId && (
-                            <div className="mb-2 flex items-center justify-center">
-                              <label
-                                className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-blue-600 cursor-pointer border border-gray-300 rounded hover:border-gray-400 bg-white shadow-sm transition-colors"
-                                style={{ height: "30px" }} // reduced height
+                      <div className="mt-4">
+                        <div className="border border-gray-200 rounded p-3">
+                          <div className="text-xs font-medium text-gray-800 mb-2 flex items-center gap-2">
+                            <MessageSquare className="w-3 h-3 text-[#19105B]" />
+                            Refine Your Proposal
+                          </div>
+                          <div className="relative">
+                            <Textarea
+                              value={currentUserPrompt}
+                              onChange={(e) => setCurrentUserPrompt(e.target.value)}
+                              onKeyPress={(e) => {
+                                if (e.key === "Enter" && !e.shiftKey) {
+                                  e.preventDefault();
+                                  handleFollowUpSend();
+                                }
+                              }}
+                              placeholder="Ask follow-up questions to refine your proposal..."
+                              className="w-full min-h-[120px] max-h-[120px] resize-none px-2 pt-2 pb-8 border border-gray-300 rounded bg-gray-50 text-xs focus:outline-none focus:border-[#19105B]"
+                              disabled={isGenerating}
+                            />
+                            <div className="absolute bottom-1.5 left-2 right-2 flex items-center justify-between">
+                              {convId && (
+                                <div className="mb-2 flex items-center justify-center">
+                                  <label
+                                    className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-blue-600 cursor-pointer border border-gray-300 rounded hover:border-gray-400 bg-white shadow-sm transition-colors"
+                                    style={{ height: "30px" }}
+                                  >
+                                    <Upload className="w-3 h-3" />
+                                    <span>Upload</span>
+                                    <input
+                                      type="file"
+                                      multiple
+                                      className="hidden"
+                                      onChange={handleFileUpload}
+                                    />
+                                  </label>
+                                </div>
+                              )}
+                              <button
+                                type="button"
+                                className="flex items-center gap-1 px-2 py-1 bg-[#19105B] text-white rounded text-xs hover:bg-[#19105B]/90 disabled:opacity-50"
+                                onClick={handleFollowUpSend}
+                                disabled={isGenerating || !currentUserPrompt.trim()}
                               >
-                                <Upload className="w-3 h-3" />
-                                <span>Upload</span>
-                                <input
-                                  type="file"
-                                  multiple
-                                  className="hidden"
-                                  onChange={handleFileUpload}
-                                />
-                              </label>
+                                <Send className="w-3 h-3" />
+                                <span>Send</span>
+                              </button>
                             </div>
-                          )}
-
-                          <button
-                            type="button"
-                            className="flex items-center gap-1 px-2 py-1 bg-[#19105B] text-white rounded text-xs hover:bg-[#19105B]/90 disabled:opacity-50"
-                            onClick={handleFollowUpSend}
-                            disabled={isGenerating || !currentUserPrompt.trim()}
-                          >
-                            <Send className="w-3 h-3" />
-                            <span>Send</span>
-                          </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                )}
-                {/* </div> */}
-              </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
+
+          {/* RIGHT PANEL — Editor */}
           <div
             className={`
               transition-all duration-300 ease-in-out
@@ -1225,6 +1420,6 @@ export const useAiProposalContext = () => {
     throw new Error('AiProposalContext must be used within a AiProposalProvider');
   }
   return context;
-}
+};
 
 export default AiProposal;
