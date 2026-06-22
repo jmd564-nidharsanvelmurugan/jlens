@@ -445,6 +445,8 @@ const AiProposal = () => {
 
   const [user_prompt, set_user_prompt] = useState<string>("");
 
+  
+
   const storeQA = async (questions: any[], qid: number, answer: string) => {
     setStoredQA(false);
     try{
