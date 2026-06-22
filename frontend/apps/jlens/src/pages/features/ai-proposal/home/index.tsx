@@ -39,6 +39,7 @@ import { createContext } from "react";
 import type { AiProposalContextType } from "../types";
 import SalesCallQAs from "../components/SalesCallQAs";
 
+import GanttChart from "../components/GannChart";
 
 const AiProposalContext = createContext({} as AiProposalContextType);
 
@@ -917,7 +918,7 @@ const AiProposal = () => {
                 </div>
               </div>
 
-              {convId && (
+              {convId && currentQuestionIndex <= 1 && (
                 <SalesCallQAs
                   isUploaded={isSalesQAs}
                   convId={convId}
