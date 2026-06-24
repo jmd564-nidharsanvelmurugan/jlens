@@ -1,3 +1,4 @@
+// index.tsx
 import React, { useMemo, useEffect, useRef, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useWorkspaces }      from "@query/layout/workspace/hooks";

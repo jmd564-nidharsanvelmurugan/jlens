@@ -1,5 +1,5 @@
 import React from "react";
-import { ChevronLeft, ChevronRight, X, Download } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, Download, Loader2 } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -21,6 +21,9 @@ interface ProposalToolbarProps {
 
   /** Close the editor panel */
   onClose:    () => void;
+
+  /** Whether a download is currently in progress */
+  isDownloading?: boolean;
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────────
@@ -37,6 +40,7 @@ const ProposalToolbar = ({
   onNext,
   onDownload,
   onClose,
+  isDownloading = false,
 }: ProposalToolbarProps) => (
   <div className="sticky top-0 z-10 bg-white border-b flex items-center justify-between px-4 py-2 gap-4 shadow-sm">
 
@@ -44,10 +48,17 @@ const ProposalToolbar = ({
     <div className="flex items-center gap-2">
       <button
         onClick={onDownload}
-        title="Download proposal"
-        className="p-2 rounded hover:bg-gray-100 text-gray-500 hover:text-[#19105B]"
+        disabled={isDownloading}
+        title={isDownloading ? "Downloading..." : "Download proposal"}
+        className={`p-2 rounded text-gray-500 hover:text-[#19105B] transition-colors ${
+          isDownloading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'
+        }`}
       >
-        <Download className="w-5 h-5" />
+        {isDownloading ? (
+          <Loader2 className="w-5 h-5 animate-spin" />
+        ) : (
+          <Download className="w-5 h-5" />
+        )}
       </button>
 
       <button
@@ -64,8 +75,10 @@ const ProposalToolbar = ({
       <div className="flex items-center gap-2">
         <button
           onClick={onPrevious}
-          disabled={currentProposalIndex === 0}
-          className="p-1 rounded text-gray-500 hover:text-[#19105B] disabled:opacity-30 disabled:cursor-not-allowed"
+          disabled={currentProposalIndex === 0 || isDownloading}
+          className={`p-1 rounded text-gray-500 hover:text-[#19105B] disabled:opacity-30 disabled:cursor-not-allowed ${
+            !isDownloading && currentProposalIndex !== 0 ? 'hover:bg-gray-100' : ''
+          }`}
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
@@ -76,8 +89,10 @@ const ProposalToolbar = ({
 
         <button
           onClick={onNext}
-          disabled={currentProposalIndex === totalProposals - 1}
-          className="p-1 rounded text-gray-500 hover:text-[#19105B] disabled:opacity-30 disabled:cursor-not-allowed"
+          disabled={currentProposalIndex === totalProposals - 1 || isDownloading}
+          className={`p-1 rounded text-gray-500 hover:text-[#19105B] disabled:opacity-30 disabled:cursor-not-allowed ${
+            !isDownloading && currentProposalIndex !== totalProposals - 1 ? 'hover:bg-gray-100' : ''
+          }`}
         >
           <ChevronRight className="w-4 h-4" />
         </button>

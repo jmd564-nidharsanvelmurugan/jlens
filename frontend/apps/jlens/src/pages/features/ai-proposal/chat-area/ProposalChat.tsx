@@ -26,6 +26,10 @@ const ProposalChat = () => {
   const pathname = useLocation().pathname;
   const convId   = pathname.split("/")[4];
 
+  // ── Local state ─────────────────────────────────────────────────────────────
+  
+  const [isDownloading, setIsDownloading] = React.useState(false);
+
   // ── Navigation hook ─────────────────────────────────────────────────────────
 
   const {
@@ -42,7 +46,19 @@ const ProposalChat = () => {
   const handleClose    = () => setIsEditorPanelOpen?.(false);
 
   /** Triggers a proposal download via the API */
-  const handleDownload = () => { if (convId) aiProposalApi.downloadProposal(convId); };
+  const handleDownload = async () => {
+    if (!convId) return;
+    
+    try {
+      setIsDownloading(true);
+      await aiProposalApi.downloadProposal(convId);
+    } catch (error) {
+      console.error("Download failed:", error);
+      // Optionally show error toast/notification here
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   // ── Resolve current proposal bundle ────────────────────────────────────────
 
@@ -52,6 +68,16 @@ const ProposalChat = () => {
 
   return (
     <div className="flex flex-col w-full relative px-4">
+      {/* Blur overlay when downloading */}
+      {isDownloading && (
+        <div className="absolute inset-0 backdrop-blur-sm bg-white/30 z-50 flex items-center justify-center rounded-lg">
+          <div className="flex flex-col items-center gap-3 p-6 bg-white/90 rounded-xl shadow-lg">
+            <div className="animate-spin rounded-full h-10 w-10 border-4 border-blue-500 border-t-transparent"></div>
+            <p className="text-gray-700 font-medium text-lg">Preparing to Download...</p>
+            <p className="text-gray-500 text-sm">Your proposal is being generated</p>
+          </div>
+        </div>
+      )}
 
       {/* Sticky toolbar: download, close, and version pagination */}
       <ProposalToolbar
@@ -61,13 +87,13 @@ const ProposalChat = () => {
         onNext={handleNext}
         onDownload={handleDownload}
         onClose={handleClose}
+        isDownloading={isDownloading}  // Pass this to disable download button
       />
 
       {/* Scrollable proposal content area */}
       <div className="space-y-3 overflow-y-auto flex-1">
         {assistant && (
           <div className="space-y-3">
-
             {/* User follow-up prompt that triggered this version (if any) */}
             {userMsg && <p>{userMsg}</p>}
 
