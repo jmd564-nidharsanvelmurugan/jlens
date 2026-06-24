@@ -10,12 +10,12 @@ import SalesCallQAs             from "../components/SalesCallQAs";
 import StepCreateConversation   from "../components/StepCreateConversation";
 import StepGenerateProposal     from "../components/StepGenerateProposal";
 import StepPostGenerate         from "../components/StepPostGenerate";
-import { AiProposalContext }    from "../context/Aiproposalcontext";
+import { AiProposalContext }    from "../context/AiProposalContext";
 import { useConversationManager } from "../hooks/useConversationManager";
 import { useProposalActions }     from "../hooks/useProposalActions";
 
 // ─── Re-export context hook for consumers ──────────────────────────────────────
-export { useAiProposalContext } from "../context/Aiproposalcontext";
+export { useAiProposalContext } from "../context/AiProposalContext";
 
 // ─── Component ─────────────────────────────────────────────────────────────────
 
